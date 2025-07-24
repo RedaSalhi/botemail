@@ -338,9 +338,9 @@ def get_sender_info_config(sender_info_mode, available_languages):
         col1, col2 = st.columns(2)
         
         with col1:
-            sender_name = st.text_input("Sender Name", value="Reda Salhi")
-            sender_title = st.text_input("Sender Title", value="Étudiant en Finance")
-            sender_contact = st.text_area("Contact Information", value="Email: reda.salhi@email.com\nPhone: +33123456789")
+            sender_name = st.text_input("Sender Name", value="Name Surname")
+            sender_title = st.text_input("Sender Title", value="Title")
+            sender_contact = st.text_area("Contact Information", value="Email: namesurname@email.com\nPhone: +33123456789")
         
         with col2:
             meeting_duration = st.text_input("Meeting Duration", value="15-20 minutes")
@@ -405,19 +405,19 @@ def get_language_defaults(lang):
             'title': "Étudiant en Ingénierie Financière",
             'duration': "15-20 minutes",
             'cta': "Je suis activement à la recherche d'opportunités et j'aimerais beaucoup avoir vos conseils.",
-            'contact': "Email: reda.salhi@email.com\nTéléphone: +33123456789"
+            'contact': "Email: namesurname@email.com\nTéléphone: +33123456789"
         },
         'es': {
             'title': "Estudiante de Ingeniería Financiera",
             'duration': "15-20 minutos",
             'cta': "Estoy explorando activamente oportunidades y me encantaría recibir cualquier consejo que puedas tener.",
-            'contact': "Email: reda.salhi@email.com\nTeléfono: +33123456789"
+            'contact': "Email: namesurname@email.com\nTeléfono: +33123456789"
         },
         'de': {
             'title': "Student der Finanzingenieurwissenschaften",
             'duration': "15-20 Minuten",
             'cta': "Ich erkunde aktiv neue Möglichkeiten und würde mich über jeden Rat freuen, den Sie haben könnten.",
-            'contact': "Email: reda.salhi@email.com\nTelefon: +33123456789"
+            'contact': "Email: namesurname@email.com\nTelefon: +33123456789"
         }
     }
     
@@ -426,7 +426,7 @@ def get_language_defaults(lang):
         'title': "Financial Engineering Student",
         'duration': "15-20 minutes",
         'cta': "I'm actively exploring opportunities and would love any advice you might have.",
-        'contact': "Email: reda.salhi@email.com\nPhone: +33123456789"
+        'contact': "Email: namesurname@email.com\nPhone: +33123456789"
     })
 
 
@@ -1099,7 +1099,7 @@ def main():
             test_mode = st.checkbox("🧪 Test Mode (don't send emails)", value=True)
 
     # Main content area
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Contacts", "📝 Templates", "📎 Attachments", "🚀 Campaign", "📊 Results"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Contacts", "Templates", "Attachments", "Campaign", "Results"])
     
     with tab1:
         render_contacts_tab()
