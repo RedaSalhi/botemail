@@ -1,483 +1,1115 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
+import streamlit as st
 import pandas as pd
-import time
-import random
-import os
-import mimetypes
-from datetime import datetime
 import json
-from typing import Dict, List, Optional, Union
+import os
+from datetime import datetime
+import io
+from email_campaign_bot import EmailCampaignBot
 
-class EmailCampaignBot:
-    def __init__(self, email: str, password: str, smtp_server: str = "smtp.gmail.com", smtp_port: int = 587):
-        """
-        Initialize the Email Campaign Bot
-        
-        Args:
-            email: Sender email address
-            password: Email password (app password for Gmail)
-            smtp_server: SMTP server address
-            smtp_port: SMTP server port
-        """
-        self.email = email
-        self.password = password
-        self.smtp_server = smtp_server
-        self.smtp_port = smtp_port
-        self.templates = {}
-        self.subject_templates = {}
 
-    def load_templates_from_file(self, templates_file: str):
-        """Load email templates from JSON file"""
-        try:
-            with open(templates_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.templates = data.get('templates', {})
-                self.subject_templates = data.get('subjects', {})
-            print(f"✅ Templates loaded from {templates_file}")
-        except Exception as e:
-            print(f"❌ Error loading templates: {e}")
+# Page configuration
+st.set_page_config(
+    page_title="Email Campaign Manager",
+    page_icon="📧",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-    def add_template(self, language: str, template: str, subjects: List[str]):
-        """Add a template for a specific language"""
-        self.templates[language] = template
-        self.subject_templates[language] = subjects
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .success-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+        margin: 1rem 0;
+    }
+    .error-box {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    def get_default_templates(self) -> Dict:
-        """Get default templates for common use cases"""
-        return {
-            "networking": {
-                "templates": {
-                    "en": """
-                    <html>
-                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                        <p>Hi {name},</p>
-                        
-                        <p>I hope you're doing well! I'm {sender_name}, {sender_title}, and I recently came across your profile{source_info}. Your work and background really stood out to me.</p>
-                        
-                        <p>{custom_message}</p>
-                        
-                        <p>If you happen to be open to a brief {meeting_duration} chat, I'd be incredibly grateful. {call_to_action}</p>
-                        
-                        <p>Thanks so much for your time, and I hope we get a chance to connect!</p>
-                        
-                        <p>Warm regards,<br>
-                        <strong>{sender_name}</strong><br>
-                        {sender_contact}</p>
-                    </body>
-                    </html>
-                    """,
-                    "fr": """
-                    <html>
-                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                        <p>Bonjour {name},</p>
-                        
-                        <p>J'espère que vous allez bien. Je m'appelle {sender_name}, {sender_title}, et j'ai découvert votre profil{source_info}. J'ai été particulièrement intéressé par votre parcours.</p>
-                        
-                        <p>{custom_message}</p>
-                        
-                        <p>Si jamais vous avez {meeting_duration} à me consacrer pour un rapide échange, ce serait avec grand plaisir. {call_to_action}</p>
-                        
-                        <p>Un grand merci pour votre temps et votre attention.</p>
-                        
-                        <p>Bien cordialement,<br>
-                        <strong>{sender_name}</strong><br>
-                        {sender_contact}</p>
-                    </body>
-                    </html>
-                    """
-                },
-                "subjects": {
-                    "en": [
-                        "Looking to Connect – {sender_name}",
-                        "Seeking your insights – {sender_name}",
-                        "Brief connection request – {sender_name}"
-                    ],
-                    "fr": [
-                        "Demande d'échange – {sender_name}",
-                        "Demande de connexion – {sender_name}",
-                        "Échange professionnel – {sender_name}"
-                    ]
-                }
-            },
-            "job_application": {
-                "templates": {
-                    "en": """
-                    <html>
-                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                        <p>Dear {name},</p>
-                        
-                        <p>I am writing to express my interest in the {position} role at {company}. With my background in {background}, I believe I would be a strong fit for this position.</p>
-                        
-                        <p>{custom_message}</p>
-                        
-                        <p>I have attached my resume and would welcome the opportunity to discuss how my skills align with your team's needs.</p>
-                        
-                        <p>Thank you for your consideration.</p>
-                        
-                        <p>Best regards,<br>
-                        <strong>{sender_name}</strong><br>
-                        {sender_contact}</p>
-                    </body>
-                    </html>
-                    """,
-                    "fr": """
-                    <html>
-                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                        <p>Madame, Monsieur {name},</p>
-                        
-                        <p>Je me permets de vous contacter concernant le poste de {position} au sein de {company}. Fort de mon expérience en {background}, je pense correspondre au profil recherché.</p>
-                        
-                        <p>{custom_message}</p>
-                        
-                        <p>Vous trouverez ci-joint mon CV et je serais ravi de pouvoir échanger avec vous sur cette opportunité.</p>
-                        
-                        <p>Dans l'attente de votre retour.</p>
-                        
-                        <p>Cordialement,<br>
-                        <strong>{sender_name}</strong><br>
-                        {sender_contact}</p>
-                    </body>
-                    </html>
-                    """
-                },
-                "subjects": {
-                    "en": [
-                        "Application for {position} - {sender_name}",
-                        "{position} Position - {sender_name}",
-                        "Interest in {position} Role - {sender_name}"
-                    ],
-                    "fr": [
-                        "Candidature {position} - {sender_name}",
-                        "Poste de {position} - {sender_name}",
-                        "Intérêt pour le poste {position} - {sender_name}"
-                    ]
-                }
-            }
-        }
 
-    def personalize_message(self, template: str, contact_data: Dict, global_vars: Dict = None) -> str:
-        """
-        Personalize message with contact data and global variables
-        
-        Args:
-            template: Email template string
-            contact_data: Individual contact information
-            global_vars: Global variables (sender info, etc.)
-        """
-        message = template
-        
-        # Merge contact data with global variables
-        all_vars = {}
-        if global_vars:
-            all_vars.update(global_vars)
-        all_vars.update(contact_data)
-        
-        # Handle language-specific sender information
-        email_language = contact_data.get('language', 'en')
-        
-        # Check if we have language-specific sender info
-        if global_vars:
-            # Look for language-specific variables first
-            for key in ['sender_name', 'sender_title', 'sender_contact', 'meeting_duration', 'call_to_action']:
-                lang_specific_key = f"{key}_{email_language}"
-                if lang_specific_key in global_vars:
-                    all_vars[key] = global_vars[lang_specific_key]
-                elif key not in all_vars and key in global_vars:
-                    # Fallback to general version if no language-specific version exists
-                    all_vars[key] = global_vars[key]
-        
-        # Replace placeholders
-        for key, value in all_vars.items():
-            if pd.notna(value) and value is not None:
-                placeholder = f"{{{key}}}"
-                message = message.replace(placeholder, str(value))
-        
-        # Handle source info specially
-        source_info = ""
-        if 'source' in contact_data and pd.notna(contact_data['source']):
-            source_info = f" on {contact_data['source']}"
-        message = message.replace("{source_info}", source_info)
-        
-        # Clean up any remaining unfilled placeholders
-        import re
-        message = re.sub(r'\{[^}]*\}', '', message)
-        
-        return message
+def initialize_session_state():
+    """Initialize session state variables"""
+    if 'bot' not in st.session_state:
+        st.session_state.bot = None
+    if 'templates_loaded' not in st.session_state:
+        st.session_state.templates_loaded = False
+    if 'campaign_stats' not in st.session_state:
+        st.session_state.campaign_stats = None
+    if 'contacts_df' not in st.session_state:
+        st.session_state.contacts_df = None
+    if 'attachment_config' not in st.session_state:
+        st.session_state.attachment_config = {'common': [], 'by_language': {}}
 
-    def generate_subject(self, contact_data: Dict, language: str = "en", global_vars: Dict = None) -> str:
-        """Generate personalized subject line"""
-        if language not in self.subject_templates:
-            language = "en"  # fallback
-            
-        subjects = self.subject_templates.get(language, ["Contact from {sender_name}"])
-        subject_template = random.choice(subjects)
-        
-        # Merge variables for subject personalization
-        all_vars = {}
-        if global_vars:
-            all_vars.update(global_vars)
-        all_vars.update(contact_data)
-        
-        # Handle language-specific sender information for subject
-        # Look for language-specific variables first
-        if global_vars:
-            for key in ['sender_name', 'sender_title', 'sender_contact', 'meeting_duration', 'call_to_action']:
-                lang_specific_key = f"{key}_{language}"
-                if lang_specific_key in global_vars:
-                    all_vars[key] = global_vars[lang_specific_key]
-                elif key not in all_vars and key in global_vars:
-                    # Fallback to general version if no language-specific version exists
-                    all_vars[key] = global_vars[key]
-        
-        # Replace placeholders in subject
-        for key, value in all_vars.items():
-            if pd.notna(value) and value is not None:
-                placeholder = f"{{{key}}}"
-                subject_template = subject_template.replace(placeholder, str(value))
-        
-        return subject_template
 
-    def send_email(self, recipient: str, subject: str, body: str, attachments: List[str] = None) -> bool:
-        """Send individual email with attachments"""
-        try:
-            msg = MIMEMultipart()
-            msg['From'] = self.email
-            msg['To'] = recipient
-            msg['Subject'] = subject
+def validate_email_config(email, password, smtp_server, smtp_port):
+    """Validate email configuration"""
+    if not email or not password:
+        return False, "Email and password are required"
+    
+    if '@' not in email:
+        return False, "Invalid email format"
+    
+    if not smtp_server:
+        return False, "SMTP server is required"
+    
+    try:
+        int(smtp_port)
+    except ValueError:
+        return False, "SMTP port must be a number"
+    
+    return True, "Valid configuration"
 
-            # Add body
-            msg.attach(MIMEText(body, 'html'))
 
-            # Add attachments
-            if attachments:
-                for file_path in attachments:
-                    if os.path.exists(file_path):
-                        self._add_attachment(msg, file_path)
-                    else:
-                        print(f"⚠️ Attachment not found: {file_path}")
-
-            # Send email
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
-            server.starttls()
-            server.login(self.email, self.password)
-            server.send_message(msg)
-            server.quit()
-
-            print(f"✅ Email sent successfully to {recipient}")
-            return True
-
-        except Exception as e:
-            print(f"❌ Error sending email to {recipient}: {e}")
-            return False
-
-    def _add_attachment(self, msg: MIMEMultipart, file_path: str):
-        """Add attachment to email message"""
-        content_type, encoding = mimetypes.guess_type(file_path)
-        if content_type is None or encoding is not None:
-            content_type = 'application/octet-stream'
-
-        main_type, sub_type = content_type.split('/', 1)
-        filename = os.path.basename(file_path)
-
-        if main_type == 'text':
-            with open(file_path, 'r', encoding='utf-8') as fp:
-                attachment = MIMEText(fp.read(), _subtype=sub_type)
+def load_contacts_preview(uploaded_file):
+    """Load and preview contacts file"""
+    try:
+        if uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file)
         else:
-            with open(file_path, 'rb') as fp:
-                attachment = MIMEBase(main_type, sub_type)
-                attachment.set_payload(fp.read())
-                encoders.encode_base64(attachment)
-
-        attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
-        msg.attach(attachment)
-
-    def run_campaign(self, 
-                    contacts_file: str,
-                    global_vars: Dict,
-                    attachments_config: Dict = None,
-                    send_limit: int = 5,
-                    delay_min: int = 30,
-                    delay_max: int = 60,
-                    test_mode: bool = False,
-                    default_language: str = "en") -> Dict:
-        """
-        Run email campaign
+            df = pd.read_csv(uploaded_file)
         
-        Args:
-            contacts_file: Path to contacts CSV/Excel file
-            global_vars: Global variables (sender info, etc.)
-            attachments_config: Configuration for attachments
-            send_limit: Maximum emails to send per session
-            delay_min/max: Delay between emails (seconds)
-            test_mode: If True, don't actually send emails
-            default_language: Default language if not specified in contact data
-            
-        Returns:
-            Campaign statistics
-        """
+        return df, None
+    except Exception as e:
+        return None, str(e)
+
+
+def create_sample_contacts():
+    """Create sample contacts file"""
+    sample_data = {
+        'name': ['John Doe', 'Marie Martin', 'Alex Smith'],
+        'email': ['john@example.com', 'marie@example.fr', 'alex@example.com'],
+        'language': ['en', 'fr', 'en'],
+        'company': ['TechCorp', 'InnovateFR', 'StartupXYZ'],
+        'position': ['CTO', 'Directeur Innovation', 'Founder'],
+        'source': ['LinkedIn', 'Conference', 'Website'],
+        'custom_message': [
+            'I am particularly interested in your work on AI applications.',
+            'Votre expertise en innovation m\'intéresse beaucoup.',
+            'I would love to learn about your entrepreneurship journey.'
+        ]
+    }
+    return pd.DataFrame(sample_data)
+
+
+def render_contacts_tab():
+    """Render the contacts management tab"""
+    st.header("📋 Contact Management")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # File upload
+        uploaded_file = st.file_uploader(
+            "Upload Contacts File",
+            type=['csv', 'xlsx'],
+            help="Upload a CSV or Excel file with contact information"
+        )
         
-        # Load contacts
-        try:
-            if contacts_file.endswith('.xlsx'):
-                df = pd.read_excel(contacts_file)
+        if uploaded_file:
+            df, error = load_contacts_preview(uploaded_file)
+            if error:
+                st.error(f"❌ Error loading file: {error}")
             else:
-                df = pd.read_csv(contacts_file)
-        except Exception as e:
-            print(f"❌ Error loading contacts: {e}")
-            return {"error": str(e)}
-
-        print(f"📋 {len(df)} contacts loaded from {contacts_file}")
-
-        # Validate required columns
-        required_columns = ['name', 'email']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            error_msg = f"Missing required columns: {missing_columns}"
-            print(f"❌ {error_msg}")
-            return {"error": error_msg}
-
-        # Check available templates
-        available_languages = list(self.templates.keys())
-        if not available_languages:
-            error_msg = "No email templates loaded"
-            print(f"❌ {error_msg}")
-            return {"error": error_msg}
-
-        print(f"📝 Available templates: {', '.join(available_languages)}")
-
-        successful_sends = 0
-        failed_sends = 0
-        campaign_log = []
-        language_stats = {}
-
-        for index, contact in df.iterrows():
-            if successful_sends >= send_limit:
-                print(f"🛑 Send limit of {send_limit} reached")
-                break
-
-            # Determine language with fallback logic
-            contact_dict = contact.to_dict()
-            
-            # Priority: contact language > default language > first available template
-            language = contact_dict.get('language', default_language)
-            
-            if language not in self.templates:
-                # Try default language
-                if default_language in self.templates:
-                    language = default_language
-                    print(f"⚠️ Language '{contact_dict.get('language', 'None')}' not available for {contact_dict.get('name', 'Unknown')}, using {default_language}")
+                st.session_state.contacts_df = df
+                st.success(f"✅ Loaded {len(df)} contacts")
+                
+                # Preview
+                st.subheader("📊 Contacts Preview")
+                st.dataframe(df.head(10), use_container_width=True)
+                
+                # Column validation
+                required_cols = ['name', 'email']
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                
+                if missing_cols:
+                    st.error(f"❌ Missing required columns: {missing_cols}")
                 else:
-                    # Use first available template
-                    language = available_languages[0]
-                    print(f"⚠️ Neither specified nor default language available for {contact_dict.get('name', 'Unknown')}, using {language}")
-            
-            # Track language usage
-            if language not in language_stats:
-                language_stats[language] = {'attempted': 0, 'successful': 0, 'failed': 0}
-            language_stats[language]['attempted'] += 1
-            
-            template = self.templates[language]
-            
-            # Personalize message
-            message = self.personalize_message(template, contact_dict, global_vars)
-            
-            # Generate subject
-            subject = self.generate_subject(contact_dict, language, global_vars)
-            
-            # Prepare attachments
-            attachments = []
-            
-            # Add language-specific attachments
-            if attachments_config and 'by_language' in attachments_config:
-                lang_attachments = attachments_config['by_language'].get(language, [])
-                attachments.extend(lang_attachments)
-            
-            # Add common attachments
-            if attachments_config and 'common' in attachments_config:
-                attachments.extend(attachments_config['common'])
-            
-            # Add contact-specific attachments
-            if 'attachment' in contact_dict and pd.notna(contact_dict['attachment']):
-                attachments.append(contact_dict['attachment'])
+                    st.success("✅ All required columns present")
+                
+                # Show available columns
+                st.info(f"Available columns: {', '.join(df.columns.tolist())}")
+    
+    with col2:
+        st.subheader("📥 Sample File")
+        sample_df = create_sample_contacts()
+        
+        # Download sample
+        csv_buffer = io.StringIO()
+        sample_df.to_csv(csv_buffer, index=False)
+        st.download_button(
+            label="📥 Download Sample CSV",
+            data=csv_buffer.getvalue(),
+            file_name="sample_contacts.csv",
+            mime="text/csv"
+        )
+        
+        # Show sample structure
+        st.subheader("📋 Sample Structure")
+        st.dataframe(sample_df, use_container_width=True)
 
-            # Log campaign entry
-            log_entry = {
-                'timestamp': datetime.now().isoformat(),
-                'name': contact_dict.get('name', 'Unknown'),
-                'email': contact_dict.get('email', 'Unknown'),
-                'language': language,
-                'original_language': contact_dict.get('language', 'Not specified'),
-                'subject': subject,
-                'attachments_count': len(attachments),
-                'template_used': language in self.templates
-            }
 
-            print(f"\n📤 Sending to {contact_dict.get('name', 'Unknown')} ({contact_dict.get('email', 'Unknown')}) - Language: {language.upper()}")
+def render_templates_tab():
+    """Render the templates management tab"""
+    st.header("📝 Email Templates")
+    
+    if not st.session_state.bot:
+        st.warning("⚠️ Please connect your email first in the sidebar")
+        return
+    
+    # Template type selection
+    template_type = st.selectbox(
+        "Select Template Type",
+        ["networking", "job_application", "custom"],
+        help="Choose a pre-built template or create custom templates"
+    )
+    
+    if template_type in ["networking", "job_application"]:
+        # Load default templates
+        default_templates = st.session_state.bot.get_default_templates()
+        if st.button(f"📥 Load {template_type.title()} Templates"):
+            template_data = default_templates[template_type]
+            st.session_state.bot.templates = template_data["templates"]
+            st.session_state.bot.subject_templates = template_data["subjects"]
+            st.session_state.templates_loaded = True
+            st.success(f"✅ {template_type.title()} templates loaded!")
+    
+    # Template editor
+    if st.session_state.templates_loaded or template_type == "custom":
+        st.subheader("✏️ Template Editor")
+        
+        # Language selection
+        languages = st.multiselect(
+            "Select Languages",
+            ["en", "fr", "es", "de", "it"],
+            default=["en", "fr"] if not st.session_state.bot.templates else list(st.session_state.bot.templates.keys())
+        )
+        
+        for lang in languages:
+            st.subheader(f"🌐 {lang.upper()} Template")
             
-            if test_mode:
-                print(f"🧪 TEST MODE: Email would be sent")
-                print(f"   Subject: {subject}")
-                print(f"   Attachments: {len(attachments)}")
-                print(f"   Template language: {language}")
-                log_entry['status'] = 'test_success'
-                successful_sends += 1
-                language_stats[language]['successful'] += 1
-            else:
-                if self.send_email(contact_dict['email'], subject, message, attachments):
-                    successful_sends += 1
-                    language_stats[language]['successful'] += 1
-                    log_entry['status'] = 'success'
+            # Email template
+            current_template = st.session_state.bot.templates.get(lang, "")
+            template_content = st.text_area(
+                f"Email Template ({lang.upper()})",
+                value=current_template,
+                height=300,
+                key=f"template_{lang}",
+                help="Use {variable_name} for placeholders (e.g., {name}, {email}, {sender_name})"
+            )
+            
+            # Subject templates
+            current_subjects = st.session_state.bot.subject_templates.get(lang, [])
+            subjects_text = "\n".join(current_subjects)
+            subjects_content = st.text_area(
+                f"Subject Templates ({lang.upper()}) - One per line",
+                value=subjects_text,
+                height=100,
+                key=f"subjects_{lang}",
+                help="Enter multiple subject templates, one per line"
+            )
+            
+            # Update templates
+            st.session_state.bot.templates[lang] = template_content
+            st.session_state.bot.subject_templates[lang] = [s.strip() for s in subjects_content.split('\n') if s.strip()]
+        
+        # Save/Load templates
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Save Templates"):
+                filename = f"templates_{template_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                st.session_state.bot.save_templates_to_file(filename, template_type)
+                st.success(f"Templates saved as {filename}")
+        
+        with col2:
+            templates_file = st.file_uploader("📂 Load Templates JSON", type=['json'])
+            if templates_file:
+                try:
+                    # Save uploaded file temporarily
+                    with open("temp_templates.json", "wb") as f:
+                        f.write(templates_file.getbuffer())
+                    st.session_state.bot.load_templates_from_file("temp_templates.json")
+                    if os.path.exists("temp_templates.json"):
+                        os.remove("temp_templates.json")
+                    st.success("✅ Templates loaded successfully!")
+                except Exception as e:
+                    st.error(f"❌ Error loading templates: {e}")
+
+
+def render_attachments_tab():
+    """Render the attachments management tab"""
+    st.header("📎 Attachment Management")
+    
+    # Common attachments
+    st.subheader("📄 Common Attachments (All Languages)")
+    common_files = st.file_uploader(
+        "Upload common attachments",
+        accept_multiple_files=True,
+        key="common_attachments"
+    )
+    
+    if common_files:
+        # Save files and update config
+        common_paths = []
+        for file in common_files:
+            file_path = f"attachments/common_{file.name}"
+            os.makedirs("attachments", exist_ok=True)
+            with open(file_path, "wb") as f:
+                f.write(file.getbuffer())
+            common_paths.append(file_path)
+        
+        st.session_state.attachment_config['common'] = common_paths
+        st.success(f"✅ {len(common_files)} common attachments uploaded")
+    
+    # Language-specific attachments
+    st.subheader("🌐 Language-Specific Attachments")
+    
+    available_languages = list(st.session_state.bot.templates.keys()) if st.session_state.bot and st.session_state.bot.templates else ['en', 'fr']
+    
+    for lang in available_languages:
+        st.write(f"**{lang.upper()} Attachments**")
+        lang_files = st.file_uploader(
+            f"Upload {lang.upper()} attachments",
+            accept_multiple_files=True,
+            key=f"lang_attachments_{lang}"
+        )
+        
+        if lang_files:
+            lang_paths = []
+            for file in lang_files:
+                file_path = f"attachments/{lang}_{file.name}"
+                os.makedirs("attachments", exist_ok=True)
+                with open(file_path, "wb") as f:
+                    f.write(file.getbuffer())
+                lang_paths.append(file_path)
+            
+            st.session_state.attachment_config['by_language'][lang] = lang_paths
+            st.success(f"✅ {len(lang_files)} {lang.upper()} attachments uploaded")
+    
+    # Show current attachment configuration
+    if st.session_state.attachment_config['common'] or st.session_state.attachment_config['by_language']:
+        st.subheader("📊 Current Attachment Configuration")
+        
+        if st.session_state.attachment_config['common']:
+            st.write("**Common Files:**")
+            for file_path in st.session_state.attachment_config['common']:
+                st.write(f"- {os.path.basename(file_path)}")
+        
+        for lang, files in st.session_state.attachment_config['by_language'].items():
+            if files:
+                st.write(f"**{lang.upper()} Files:**")
+                for file_path in files:
+                    st.write(f"- {os.path.basename(file_path)}")
+
+
+def get_sender_info_config(sender_info_mode, available_languages):
+    """Get sender information configuration based on mode"""
+    if sender_info_mode == "Single (Same for all languages)":
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            sender_name = st.text_input("Sender Name", value="Reda Salhi")
+            sender_title = st.text_input("Sender Title", value="Étudiant en Finance")
+            sender_contact = st.text_area("Contact Information", value="Email: reda.salhi@email.com\nPhone: +33123456789")
+        
+        with col2:
+            meeting_duration = st.text_input("Meeting Duration", value="15-20 minutes")
+            call_to_action = st.text_area("Call to Action", 
+                                        value="I'm actively exploring opportunities and would love any advice you might have.")
+        
+        # Create single global vars
+        global_vars = {
+            'sender_name': sender_name,
+            'sender_title': sender_title,
+            'sender_contact': sender_contact,
+            'meeting_duration': meeting_duration,
+            'call_to_action': call_to_action
+        }
+    
+    else:  # Multi-Language sender info
+        st.info("💡 Configure sender information for each language. This will automatically adapt based on the email language.")
+        
+        # Create tabs for each language if 4 or fewer languages
+        if len(available_languages) <= 4:
+            lang_tabs = st.tabs([f"🌐 {lang.upper()}" for lang in available_languages])
+        else:
+            # Use selectbox for many languages
+            selected_lang_for_config = st.selectbox("Select language to configure", available_languages)
+            lang_tabs = [st.container()]
+            available_languages = [selected_lang_for_config]
+        
+        global_vars = {}
+        
+        for i, lang in enumerate(available_languages):
+            with lang_tabs[i]:
+                st.subheader(f"Sender Information - {lang.upper()}")
+                
+                # Default values based on language
+                defaults = get_language_defaults(lang)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    sender_name = st.text_input(f"Sender Name ({lang.upper()})", value="Reda Salhi", key=f"name_{lang}")
+                    sender_title = st.text_input(f"Sender Title ({lang.upper()})", value=defaults['title'], key=f"title_{lang}")
+                    sender_contact = st.text_area(f"Contact Information ({lang.upper()})", value=defaults['contact'], key=f"contact_{lang}")
+                
+                with col2:
+                    meeting_duration = st.text_input(f"Meeting Duration ({lang.upper()})", value=defaults['duration'], key=f"duration_{lang}")
+                    call_to_action = st.text_area(f"Call to Action ({lang.upper()})", value=defaults['cta'], key=f"cta_{lang}")
+                
+                # Store language-specific variables
+                global_vars[f'sender_name_{lang}'] = sender_name
+                global_vars[f'sender_title_{lang}'] = sender_title
+                global_vars[f'sender_contact_{lang}'] = sender_contact
+                global_vars[f'meeting_duration_{lang}'] = meeting_duration
+                global_vars[f'call_to_action_{lang}'] = call_to_action
+    
+    return global_vars
+
+
+def get_language_defaults(lang):
+    """Get default values for different languages"""
+    defaults = {
+        'fr': {
+            'title': "Étudiant en Ingénierie Financière",
+            'duration': "15-20 minutes",
+            'cta': "Je suis activement à la recherche d'opportunités et j'aimerais beaucoup avoir vos conseils.",
+            'contact': "Email: reda.salhi@email.com\nTéléphone: +33123456789"
+        },
+        'es': {
+            'title': "Estudiante de Ingeniería Financiera",
+            'duration': "15-20 minutos",
+            'cta': "Estoy explorando activamente oportunidades y me encantaría recibir cualquier consejo que puedas tener.",
+            'contact': "Email: reda.salhi@email.com\nTeléfono: +33123456789"
+        },
+        'de': {
+            'title': "Student der Finanzingenieurwissenschaften",
+            'duration': "15-20 Minuten",
+            'cta': "Ich erkunde aktiv neue Möglichkeiten und würde mich über jeden Rat freuen, den Sie haben könnten.",
+            'contact': "Email: reda.salhi@email.com\nTelefon: +33123456789"
+        }
+    }
+    
+    # English default
+    return defaults.get(lang, {
+        'title': "Financial Engineering Student",
+        'duration': "15-20 minutes",
+        'cta': "I'm actively exploring opportunities and would love any advice you might have.",
+        'contact': "Email: reda.salhi@email.com\nPhone: +33123456789"
+    })
+
+
+def render_campaign_preview(global_vars, campaign_mode, selected_language=None, selected_languages=None):
+    """Render campaign preview section"""
+    st.subheader("👀 Campaign Preview")
+    
+    # Determine languages for preview
+    available_languages = list(st.session_state.bot.templates.keys())
+    
+    if campaign_mode == "Single Language":
+        preview_languages = [selected_language]
+    elif campaign_mode == "Multi-Language":
+        preview_languages = selected_languages if selected_languages else available_languages[:1]
+    else:
+        preview_languages = available_languages[:2]  # Show first 2 languages for auto-detect
+    
+    preview_cols = st.columns(len(preview_languages))
+    
+    for idx, lang in enumerate(preview_languages):
+        with preview_cols[idx]:
+            if st.button(f"🔍 Preview {lang.upper()}", key=f"preview_{lang}"):
+                if len(st.session_state.contacts_df) > 0:
+                    first_contact = st.session_state.contacts_df.iloc[0].to_dict()
+                    # Override language for preview
+                    first_contact['language'] = lang
                     
-                    # Random delay between sends
-                    if index < len(df) - 1:
-                        delay = random.randint(delay_min, delay_max)
-                        print(f"⏳ Waiting {delay} seconds...")
-                        time.sleep(delay)
-                else:
-                    failed_sends += 1
-                    language_stats[language]['failed'] += 1
-                    log_entry['status'] = 'failed'
-            
-            campaign_log.append(log_entry)
+                    if lang in st.session_state.bot.templates:
+                        template = st.session_state.bot.templates[lang]
+                        preview_message = st.session_state.bot.personalize_message(template, first_contact, global_vars)
+                        preview_subject = st.session_state.bot.generate_subject(first_contact, lang, global_vars)
+                        
+                        st.success(f"**Subject ({lang.upper()}):** {preview_subject}")
+                        st.info(f"**Email Content ({lang.upper()}):**")
+                        with st.expander(f"View {lang.upper()} Email", expanded=True):
+                            st.markdown(preview_message, unsafe_allow_html=True)
+                    else:
+                        st.error(f"❌ No template available for language: {lang}")
 
-        # Campaign summary
-        stats = {
-            'total_contacts': len(df),
-            'successful_sends': successful_sends,
-            'failed_sends': failed_sends,
-            'completion_time': datetime.now().isoformat(),
-            'test_mode': test_mode,
-            'campaign_log': campaign_log,
-            'language_statistics': language_stats,
-            'available_templates': available_languages,
-            'default_language_used': default_language
-        }
-        
-        print(f"\n📊 CAMPAIGN SUMMARY")
-        print(f"✅ Successful sends: {successful_sends}")
-        print(f"❌ Failed sends: {failed_sends}")
-        print(f"🌐 Languages used: {', '.join(language_stats.keys())}")
-        for lang, lang_stats in language_stats.items():
-            print(f"   {lang.upper()}: {lang_stats['successful']}/{lang_stats['attempted']} successful")
-        print(f"📅 Completed at: {stats['completion_time']}")
-        
-        return stats
 
-    def save_templates_to_file(self, filename: str, campaign_type: str = "custom"):
-        """Save current templates to JSON file"""
-        data = {
-            'campaign_type': campaign_type,
-            'templates': self.templates,
-            'subjects': self.subject_templates
-        }
+def run_single_language_campaign(selected_language, global_vars, send_limit, delay_min, delay_max, test_mode):
+    """Run a single language campaign"""
+    contacts_with_language = st.session_state.contacts_df.copy()
+    contacts_with_language['language'] = selected_language
+    
+    # Save contacts to temporary file
+    temp_contacts_file = f"temp_contacts_{selected_language}.xlsx"
+    contacts_with_language.to_excel(temp_contacts_file, index=False)
+    
+    # Progress tracking
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text(f"🚀 Starting {selected_language.upper()} campaign...")
+    
+    try:
+        campaign_stats = st.session_state.bot.run_campaign(
+            contacts_file=temp_contacts_file,
+            global_vars=global_vars,
+            attachments_config=st.session_state.attachment_config,
+            send_limit=send_limit,
+            delay_min=delay_min,
+            delay_max=delay_max,
+            test_mode=test_mode,
+            default_language=selected_language
+        )
+        
+        campaign_stats['language'] = selected_language
+        progress_bar.progress(1.0)
+        status_text.text("✅ Campaign completed!")
+        return [campaign_stats]
+        
+    except Exception as e:
+        st.error(f"❌ Campaign failed: {str(e)}")
+        return []
+    finally:
+        if os.path.exists(temp_contacts_file):
+            os.remove(temp_contacts_file)
+
+
+def run_multi_language_campaign(selected_languages, global_vars, send_limit, delay_min, delay_max, test_mode):
+    """Run multi-language campaigns"""
+    if not selected_languages:
+        st.error("❌ Please select at least one language")
+        return []
+    
+    campaign_results = []
+    total_languages = len(selected_languages)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for idx, lang in enumerate(selected_languages):
+        if lang not in st.session_state.bot.templates:
+            st.warning(f"⚠️ Skipping {lang.upper()} - no template available")
+            continue
+        
+        status_text.text(f"🚀 Starting {lang.upper()} campaign ({idx+1}/{total_languages})...")
+        progress_bar.progress(idx / total_languages)
+        
+        # Prepare contacts for this language
+        contacts_with_language = st.session_state.contacts_df.copy()
+        contacts_with_language['language'] = lang
+        
+        # Save to temporary file
+        temp_contacts_file = f"temp_contacts_{lang}.xlsx"
+        contacts_with_language.to_excel(temp_contacts_file, index=False)
         
         try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            print(f"✅ Templates saved to {filename}")
+            campaign_stats = st.session_state.bot.run_campaign(
+                contacts_file=temp_contacts_file,
+                global_vars=global_vars,
+                attachments_config=st.session_state.attachment_config,
+                send_limit=send_limit,
+                delay_min=delay_min,
+                delay_max=delay_max,
+                test_mode=test_mode,
+                default_language=lang
+            )
+            
+            campaign_stats['language'] = lang
+            campaign_results.append(campaign_stats)
+            
         except Exception as e:
-            print(f"❌ Error saving templates: {e}")
+            st.error(f"❌ {lang.upper()} campaign failed: {str(e)}")
+        finally:
+            if os.path.exists(temp_contacts_file):
+                os.remove(temp_contacts_file)
+        
+        # Update progress
+        progress_bar.progress((idx + 1) / total_languages)
+    
+    return campaign_results
+
+
+def run_auto_detect_campaign(global_vars, send_limit, delay_min, delay_max, test_mode):
+    """Run auto-detect language campaign"""
+    temp_contacts_file = "temp_contacts_auto.xlsx"
+    st.session_state.contacts_df.to_excel(temp_contacts_file, index=False)
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text("🚀 Starting auto-detect campaign...")
+    
+    try:
+        campaign_stats = st.session_state.bot.run_campaign(
+            contacts_file=temp_contacts_file,
+            global_vars=global_vars,
+            attachments_config=st.session_state.attachment_config,
+            send_limit=send_limit,
+            delay_min=delay_min,
+            delay_max=delay_max,
+            test_mode=test_mode,
+            default_language="en"
+        )
+        
+        campaign_stats['language'] = 'auto-detect'
+        progress_bar.progress(1.0)
+        status_text.text("✅ Campaign completed!")
+        return [campaign_stats]
+        
+    except Exception as e:
+        st.error(f"❌ Campaign failed: {str(e)}")
+        return []
+    finally:
+        if os.path.exists(temp_contacts_file):
+            os.remove(temp_contacts_file)
+
+
+def render_campaign_tab(send_limit, delay_min, delay_max, test_mode):
+    """Render the campaign launch tab"""
+    st.header("🚀 Campaign Launch")
+    
+    if not st.session_state.bot:
+        st.warning("⚠️ Please connect your email first in the sidebar")
+        return
+    
+    if not st.session_state.templates_loaded and not st.session_state.bot.templates:
+        st.warning("⚠️ Please load email templates first")
+        return
+    
+    if st.session_state.contacts_df is None:
+        st.warning("⚠️ Please upload contacts file first")
+        return
+    
+    # Language and Campaign Configuration
+    st.subheader("🌐 Campaign Language Settings")
+    
+    # Get available languages from templates
+    available_languages = list(st.session_state.bot.templates.keys()) if st.session_state.bot.templates else ['en']
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        campaign_mode = st.radio(
+            "Campaign Mode",
+            ["Single Language", "Multi-Language", "Auto-Detect"],
+            help="Choose how to handle languages in your campaign"
+        )
+    
+    with col2:
+        selected_language = None
+        selected_languages = None
+        
+        if campaign_mode == "Single Language":
+            selected_language = st.selectbox(
+                "Select Campaign Language",
+                available_languages,
+                help="All contacts will receive emails in this language"
+            )
+            st.info(f"All {len(st.session_state.contacts_df)} contacts will receive {selected_language.upper()} emails")
+        
+        elif campaign_mode == "Multi-Language":
+            selected_languages = st.multiselect(
+                "Select Languages to Send",
+                available_languages,
+                default=available_languages,
+                help="Create separate campaigns for each selected language"
+            )
+            if selected_languages:
+                total_campaigns = len(selected_languages) * len(st.session_state.contacts_df)
+                st.warning(f"⚠️ This will create {len(selected_languages)} campaigns × {len(st.session_state.contacts_df)} contacts = {total_campaigns} total emails")
+        
+        else:  # Auto-Detect
+            st.info("Will use 'language' column from contacts file, defaulting to English if not specified")
+            # Check if language column exists
+            if 'language' in st.session_state.contacts_df.columns:
+                lang_distribution = st.session_state.contacts_df['language'].value_counts()
+                st.write("**Language Distribution in Contacts:**")
+                for lang, count in lang_distribution.items():
+                    if lang in available_languages:
+                        st.write(f"- {lang.upper()}: {count} contacts ✅")
+                    else:
+                        st.write(f"- {lang.upper()}: {count} contacts ❌ (no template)")
+            else:
+                st.warning("⚠️ No 'language' column found in contacts. Will default to English.")
+    
+    # Global variables configuration
+    st.subheader("👤 Sender Information")
+    
+    # Language-specific sender info
+    sender_info_mode = st.radio(
+        "Sender Information Mode",
+        ["Single (Same for all languages)", "Multi-Language (Different per language)"],
+        help="Choose whether to use the same sender info for all languages or customize per language"
+    )
+    
+    global_vars = get_sender_info_config(sender_info_mode, available_languages)
+    
+    # Custom global variables
+    st.subheader("🔧 Custom Variables")
+    custom_vars_text = st.text_area(
+        "Additional Variables (JSON format)",
+        value='{"company": "Your Company", "background": "financial engineering"}',
+        help="Enter custom variables in JSON format - these will be the same for all languages"
+    )
+    
+    try:
+        custom_vars = json.loads(custom_vars_text) if custom_vars_text.strip() else {}
+    except json.JSONDecodeError:
+        st.error("❌ Invalid JSON format for custom variables")
+        custom_vars = {}
+    
+    # Add custom vars to global vars
+    global_vars.update(custom_vars)
+    
+    # Campaign preview
+    render_campaign_preview(global_vars, campaign_mode, selected_language, selected_languages)
+    
+    # Launch campaign
+    st.subheader("🚀 Launch Campaign")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        if test_mode:
+            st.info("🧪 **Test Mode Enabled** - No emails will actually be sent")
+        else:
+            st.warning("⚠️ **Live Mode** - Emails will be sent to recipients")
+    
+    with col2:
+        launch_button = st.button(
+            "🚀 Launch Campaign",
+            type="primary",
+            use_container_width=True
+        )
+    
+    if launch_button:
+        if not st.session_state.contacts_df.empty:
+            # Launch campaign based on selected mode
+            if campaign_mode == "Single Language":
+                campaign_results = run_single_language_campaign(
+                    selected_language, global_vars, send_limit, delay_min, delay_max, test_mode
+                )
+            elif campaign_mode == "Multi-Language":
+                campaign_results = run_multi_language_campaign(
+                    selected_languages, global_vars, send_limit, delay_min, delay_max, test_mode
+                )
+            else:  # Auto-Detect
+                campaign_results = run_auto_detect_campaign(
+                    global_vars, send_limit, delay_min, delay_max, test_mode
+                )
+            
+            # Show results
+            if campaign_results:
+                # Store results
+                st.session_state.campaign_stats = campaign_results
+                
+                # Show summary
+                total_successful = sum(stats.get('successful_sends', 0) for stats in campaign_results if 'error' not in stats)
+                total_failed = sum(stats.get('failed_sends', 0) for stats in campaign_results if 'error' not in stats)
+                
+                if total_successful > 0:
+                    st.success(f"✅ All campaigns completed! {total_successful} emails sent successfully across {len(campaign_results)} campaign(s).")
+                if total_failed > 0:
+                    st.warning(f"⚠️ {total_failed} emails failed to send.")
+                
+                # Show per-language results
+                for stats in campaign_results:
+                    if 'error' not in stats:
+                        lang_name = stats.get('language', 'Unknown').upper()
+                        st.info(f"**{lang_name}**: {stats['successful_sends']} sent, {stats['failed_sends']} failed")
+        else:
+            st.error("❌ No contacts available")
+
+
+def render_results_tab():
+    """Render the campaign results tab"""
+    st.header("📊 Campaign Results")
+    
+    if st.session_state.campaign_stats:
+        # Handle both single campaign and multi-campaign results
+        if isinstance(st.session_state.campaign_stats, list):
+            render_multi_campaign_results()
+        else:
+            render_single_campaign_results()
+    else:
+        st.info("📊 No campaign results yet. Launch a campaign to see results here.")
+        
+        # Show sample results structure
+        st.subheader("📋 Sample Results Structure")
+        sample_results = pd.DataFrame({
+            'timestamp': ['2024-07-24T10:30:00', '2024-07-24T10:31:30', '2024-07-24T10:33:00'],
+            'name': ['John Doe', 'Marie Martin', 'Hans Mueller'],
+            'email': ['john@example.com', 'marie@example.fr', 'hans@example.de'],
+            'language': ['en', 'fr', 'de'],
+            'campaign_language': ['en', 'fr', 'de'],
+            'status': ['success', 'success', 'failed'],
+            'attachments_count': [2, 2, 2]
+        })
+        st.dataframe(sample_results, use_container_width=True)
+
+
+def render_multi_campaign_results():
+    """Render results for multiple campaigns"""
+    all_stats = st.session_state.campaign_stats
+    
+    # Overall summary
+    st.subheader("📈 Overall Campaign Summary")
+    
+    total_successful = sum(stats.get('successful_sends', 0) for stats in all_stats if 'error' not in stats)
+    total_failed = sum(stats.get('failed_sends', 0) for stats in all_stats if 'error' not in stats)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Campaigns", len(all_stats))
+    
+    with col2:
+        st.metric("Total Emails Sent", total_successful)
+    
+    with col3:
+        st.metric("Total Failed", total_failed)
+    
+    with col4:
+        overall_success_rate = (total_successful / (total_successful + total_failed) * 100) if (total_successful + total_failed) > 0 else 0
+        st.metric("Overall Success Rate", f"{overall_success_rate:.1f}%")
+    
+    # Per-language breakdown
+    st.subheader("🌐 Per-Language Results")
+    
+    language_data = []
+    for stats in all_stats:
+        if 'error' not in stats:
+            language_data.append({
+                'Language': stats.get('language', 'Unknown').upper(),
+                'Contacts': stats.get('total_contacts', 0),
+                'Successful': stats.get('successful_sends', 0),
+                'Failed': stats.get('failed_sends', 0),
+                'Success Rate': f"{(stats.get('successful_sends', 0) / max(stats.get('total_contacts', 1), 1) * 100):.1f}%",
+                'Completion Time': stats.get('completion_time', 'Unknown')
+            })
+    
+    if language_data:
+        lang_df = pd.DataFrame(language_data)
+        st.dataframe(lang_df, use_container_width=True)
+    
+    # Combined campaign log
+    render_combined_campaign_log(all_stats)
+    
+    # Export options
+    render_export_options()
+
+
+def render_single_campaign_results():
+    """Render results for a single campaign"""
+    stats = st.session_state.campaign_stats
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Contacts", stats['total_contacts'])
+    
+    with col2:
+        st.metric("Successful Sends", stats['successful_sends'])
+    
+    with col3:
+        st.metric("Failed Sends", stats['failed_sends'])
+    
+    with col4:
+        success_rate = (stats['successful_sends'] / stats['total_contacts'] * 100) if stats['total_contacts'] > 0 else 0
+        st.metric("Success Rate", f"{success_rate:.1f}%")
+    
+    # Campaign log
+    if 'campaign_log' in stats and stats['campaign_log']:
+        st.subheader("📋 Detailed Log")
+        
+        log_df = pd.DataFrame(stats['campaign_log'])
+        
+        # Add filters
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            status_filter = st.multiselect(
+                "Filter by Status",
+                options=log_df['status'].unique(),
+                default=log_df['status'].unique(),
+                key="single_status_filter"
+            )
+        
+        with col2:
+            language_filter = st.multiselect(
+                "Filter by Language",
+                options=log_df['language'].unique(),
+                default=log_df['language'].unique(),
+                key="single_language_filter"
+            )
+        
+        # Apply filters
+        filtered_df = log_df[
+            (log_df['status'].isin(status_filter)) &
+            (log_df['language'].isin(language_filter))
+        ]
+        
+        # Display filtered results
+        st.dataframe(filtered_df, use_container_width=True)
+        
+        # Download results
+        csv_buffer = io.StringIO()
+        log_df.to_csv(csv_buffer, index=False)
+        
+        st.download_button(
+            label="📥 Download Campaign Log",
+            data=csv_buffer.getvalue(),
+            file_name=f"campaign_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
+
+def render_combined_campaign_log(all_stats):
+    """Render combined campaign log for multiple campaigns"""
+    st.subheader("📋 Combined Campaign Log")
+    
+    all_logs = []
+    for stats in all_stats:
+        if 'campaign_log' in stats and stats['campaign_log']:
+            # Add language info to each log entry
+            for log_entry in stats['campaign_log']:
+                log_entry['campaign_language'] = stats.get('language', 'Unknown')
+                all_logs.append(log_entry)
+    
+    if all_logs:
+        combined_log_df = pd.DataFrame(all_logs)
+        
+        # Add filters
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            status_filter = st.multiselect(
+                "Filter by Status",
+                options=combined_log_df['status'].unique(),
+                default=combined_log_df['status'].unique(),
+                key="multi_status_filter"
+            )
+        
+        with col2:
+            email_lang_filter = st.multiselect(
+                "Filter by Email Language",
+                options=combined_log_df['language'].unique(),
+                default=combined_log_df['language'].unique(),
+                key="multi_email_lang_filter"
+            )
+        
+        with col3:
+            campaign_lang_filter = st.multiselect(
+                "Filter by Campaign",
+                options=combined_log_df['campaign_language'].unique(),
+                default=combined_log_df['campaign_language'].unique(),
+                key="multi_campaign_filter"
+            )
+        
+        # Apply filters
+        filtered_df = combined_log_df[
+            (combined_log_df['status'].isin(status_filter)) &
+            (combined_log_df['language'].isin(email_lang_filter)) &
+            (combined_log_df['campaign_language'].isin(campaign_lang_filter))
+        ]
+        
+        # Display filtered results
+        st.dataframe(filtered_df, use_container_width=True)
+        
+        # Download combined results
+        csv_buffer = io.StringIO()
+        combined_log_df.to_csv(csv_buffer, index=False)
+        
+        st.download_button(
+            label="📥 Download Combined Campaign Log",
+            data=csv_buffer.getvalue(),
+            file_name=f"combined_campaign_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
+
+def render_export_options():
+    """Render export options for campaign results"""
+    st.subheader("📤 Export Results")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📊 Export Summary Report"):
+            # Create comprehensive summary
+            if isinstance(st.session_state.campaign_stats, list):
+                # Multi-campaign report
+                report_data = []
+                for stats in st.session_state.campaign_stats:
+                    if 'error' not in stats:
+                        report_data.append({
+                            'Campaign Language': stats.get('language', 'Unknown').upper(),
+                            'Total Contacts': stats.get('total_contacts', 0),
+                            'Successful Sends': stats.get('successful_sends', 0),
+                            'Failed Sends': stats.get('failed_sends', 0),
+                            'Success Rate (%)': round((stats.get('successful_sends', 0) / max(stats.get('total_contacts', 1), 1) * 100), 2),
+                            'Test Mode': stats.get('test_mode', False),
+                            'Completion Time': stats.get('completion_time', 'Unknown')
+                        })
+                
+                summary_df = pd.DataFrame(report_data)
+                
+                # Add totals row
+                totals = {
+                    'Campaign Language': 'TOTAL',
+                    'Total Contacts': summary_df['Total Contacts'].sum(),
+                    'Successful Sends': summary_df['Successful Sends'].sum(),
+                    'Failed Sends': summary_df['Failed Sends'].sum(),
+                    'Success Rate (%)': round((summary_df['Successful Sends'].sum() / max(summary_df['Total Contacts'].sum(), 1) * 100), 2),
+                    'Test Mode': 'Mixed' if len(set(stats.get('test_mode', False) for stats in st.session_state.campaign_stats)) > 1 else str(st.session_state.campaign_stats[0].get('test_mode', False)),
+                    'Completion Time': f"{len(st.session_state.campaign_stats)} campaigns"
+                }
+                summary_df = pd.concat([summary_df, pd.DataFrame([totals])], ignore_index=True)
+                
+            else:
+                # Single campaign report
+                stats = st.session_state.campaign_stats
+                summary_df = pd.DataFrame([{
+                    'Campaign Language': stats.get('language', 'auto-detect').upper(),
+                    'Total Contacts': stats.get('total_contacts', 0),
+                    'Successful Sends': stats.get('successful_sends', 0),
+                    'Failed Sends': stats.get('failed_sends', 0),
+                    'Success Rate (%)': round((stats.get('successful_sends', 0) / max(stats.get('total_contacts', 1), 1) * 100), 2),
+                    'Test Mode': stats.get('test_mode', False),
+                    'Completion Time': stats.get('completion_time', 'Unknown')
+                }])
+            
+            # Create downloadable CSV
+            csv_buffer = io.StringIO()
+            summary_df.to_csv(csv_buffer, index=False)
+            
+            st.download_button(
+                label="📥 Download Summary Report",
+                data=csv_buffer.getvalue(),
+                file_name=f"campaign_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+    
+    with col2:
+        if st.button("📋 Export Detailed Logs"):
+            # Create detailed log export
+            if isinstance(st.session_state.campaign_stats, list):
+                # Combine all logs
+                all_logs = []
+                for stats in st.session_state.campaign_stats:
+                    if 'campaign_log' in stats and stats['campaign_log']:
+                        for log_entry in stats['campaign_log']:
+                            log_entry_copy = log_entry.copy()
+                            log_entry_copy['campaign_language'] = stats.get('language', 'Unknown')
+                            all_logs.append(log_entry_copy)
+                
+                if all_logs:
+                    detailed_df = pd.DataFrame(all_logs)
+                else:
+                    detailed_df = pd.DataFrame()
+            else:
+                # Single campaign log
+                stats = st.session_state.campaign_stats
+                if 'campaign_log' in stats and stats['campaign_log']:
+                    detailed_df = pd.DataFrame(stats['campaign_log'])
+                    detailed_df['campaign_language'] = stats.get('language', 'auto-detect')
+                else:
+                    detailed_df = pd.DataFrame()
+            
+            if not detailed_df.empty:
+                csv_buffer = io.StringIO()
+                detailed_df.to_csv(csv_buffer, index=False)
+                
+                st.download_button(
+                    label="📥 Download Detailed Logs",
+                    data=csv_buffer.getvalue(),
+                    file_name=f"campaign_detailed_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.warning("⚠️ No detailed logs available")
+
+
+def main():
+    """Main Streamlit application"""
+    initialize_session_state()
+    
+    # Header
+    st.markdown('<h1 class="main-header">📧 Email Campaign Manager</h1>', unsafe_allow_html=True)
+    
+    # Sidebar for configuration
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        
+        # Email configuration
+        with st.expander("📧 Email Settings", expanded=True):
+            email = st.text_input("Email Address", placeholder="your-email@gmail.com")
+            password = st.text_input("Password", type="password", 
+                                   help="Use App Password for Gmail")
+            smtp_server = st.text_input("SMTP Server", value="smtp.gmail.com")
+            smtp_port = st.number_input("SMTP Port", value=587, min_value=1, max_value=65535)
+            
+            if st.button("🔗 Connect Email"):
+                is_valid, message = validate_email_config(email, password, smtp_server, smtp_port)
+                if is_valid:
+                    try:
+                        st.session_state.bot = EmailCampaignBot(email, password, smtp_server, smtp_port)
+                        st.success("✅ Email connected successfully!")
+                    except Exception as e:
+                        st.error(f"❌ Connection failed: {e}")
+                else:
+                    st.error(f"❌ {message}")
+        
+        # Campaign settings
+        with st.expander("🎯 Campaign Settings"):
+            send_limit = st.number_input("Send Limit per Session", value=5, min_value=1, max_value=100)
+            delay_min = st.number_input("Min Delay (seconds)", value=30, min_value=0)
+            delay_max = st.number_input("Max Delay (seconds)", value=60, min_value=delay_min)
+            test_mode = st.checkbox("🧪 Test Mode (don't send emails)", value=True)
+
+    # Main content area
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Contacts", "📝 Templates", "📎 Attachments", "🚀 Campaign", "📊 Results"])
+    
+    with tab1:
+        render_contacts_tab()
+    
+    with tab2:
+        render_templates_tab()
+    
+    with tab3:
+        render_attachments_tab()
+    
+    with tab4:
+        render_campaign_tab(send_limit, delay_min, delay_max, test_mode)
+    
+    with tab5:
+        render_results_tab()
+
+
+if __name__ == "__main__":
+    main()
