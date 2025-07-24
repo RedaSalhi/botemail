@@ -1,0 +1,19 @@
+{
+  "campaign_type": "networking",
+  "templates": {
+    "en": "<html>\n<body style=\"font-family: Arial, sans-serif; line-height: 1.6; color: #333;\">\n    <p>Hi {name},</p>\n    \n    <p>I hope you're doing well! I'm {sender_name}, {sender_title}, and I recently came across your profile{source_info}. Your work and background really stood out to me.</p>\n    \n    <p>{custom_message}</p>\n    \n    <p>If you happen to be open to a brief {meeting_duration} chat, I'd be incredibly grateful. {call_to_action}</p>\n    \n    <p>Thanks so much for your time, and I hope we get a chance to connect!</p>\n    \n    <p>Warm regards,<br>\n    <strong>{sender_name}</strong><br>\n    {sender_contact}</p>\n</body>\n</html>",
+    "fr": "<html>\n<body style=\"font-family: Arial, sans-serif; line-height: 1.6; color: #333;\">\n    <p>Bonjour {name},</p>\n    \n    <p>J'espère que vous allez bien. Je m'appelle {sender_name}, {sender_title}, et j'ai découvert votre profil{source_info}. J'ai été particulièrement intéressé par votre parcours.</p>\n    \n    <p>{custom_message}</p>\n    \n    <p>Si jamais vous avez {meeting_duration} à me consacrer pour un rapide échange, ce serait avec grand plaisir. {call_to_action}</p>\n    \n    <p>Un grand merci pour votre temps et votre attention.</p>\n    \n    <p>Bien cordialement,<br>\n    <strong>{sender_name}</strong><br>\n    {sender_contact}</p>\n</body>\n</html>"
+  },
+  "subjects": {
+    "en": [
+      "Looking to Connect – {sender_name}",
+      "Seeking your insights – {sender_name}",
+      "Brief connection request – {sender_name}"
+    ],
+    "fr": [
+      "Demande d'échange – {sender_name}",
+      "Demande de connexion – {sender_name}",
+      "Échange professionnel – {sender_name}"
+    ]
+  }
+}
