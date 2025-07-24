@@ -100,8 +100,7 @@ class EmailCampaignBot:
                     ],
                     "fr": [
                         "Demande d'échange – {sender_name}",
-                        "Demande de connexion – {sender_name}",
-                        "Échange professionnel – {sender_name}"
+                        "Demande de connexion – {sender_name}"
                     ]
                 }
             },
@@ -110,7 +109,7 @@ class EmailCampaignBot:
                     "en": """
                     <html>
                     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                        <p>Dear {name},</p>
+                        <p>Hi {name},</p>
                         
                         <p>I am writing to express my interest in the {position} role at {company}. With my background in {background}, I believe I would be a strong fit for this position.</p>
                         
@@ -129,7 +128,7 @@ class EmailCampaignBot:
                     "fr": """
                     <html>
                     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                        <p>Madame, Monsieur {name},</p>
+                        <p>Bonjour {name},</p>
                         
                         <p>Je me permets de vous contacter concernant le poste de {position} au sein de {company}. Fort de mon expérience en {background}, je pense correspondre au profil recherché.</p>
                         
