@@ -11,7 +11,7 @@ import mimetypes
 from datetime import datetime
 import json
 import re
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 
 class EmailCampaignBot:
