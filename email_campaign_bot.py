@@ -277,7 +277,8 @@ class EmailCampaignBot:
                     send_limit: int = 5,
                     delay_min: int = 30,
                     delay_max: int = 60,
-                    test_mode: bool = False) -> Dict:
+                    test_mode: bool = False,
+                    default_language: str = "en") -> Dict:
         """
         Run email campaign
         
@@ -288,6 +289,7 @@ class EmailCampaignBot:
             send_limit: Maximum emails to send per session
             delay_min/max: Delay between emails (seconds)
             test_mode: If True, don't actually send emails
+            default_language: Default language if not specified in contact data
             
         Returns:
             Campaign statistics
@@ -313,30 +315,49 @@ class EmailCampaignBot:
             print(f"❌ {error_msg}")
             return {"error": error_msg}
 
+        # Check available templates
+        available_languages = list(self.templates.keys())
+        if not available_languages:
+            error_msg = "No email templates loaded"
+            print(f"❌ {error_msg}")
+            return {"error": error_msg}
+
+        print(f"📝 Available templates: {', '.join(available_languages)}")
+
         successful_sends = 0
         failed_sends = 0
         campaign_log = []
+        language_stats = {}
 
         for index, contact in df.iterrows():
             if successful_sends >= send_limit:
                 print(f"🛑 Send limit of {send_limit} reached")
                 break
 
-            # Get language (default to 'en')
-            language = contact.get('language', 'en')
+            # Determine language with fallback logic
+            contact_dict = contact.to_dict()
             
-            # Get template
+            # Priority: contact language > default language > first available template
+            language = contact_dict.get('language', default_language)
+            
             if language not in self.templates:
-                language = 'en'  # fallback
-                
-            if language not in self.templates:
-                print(f"❌ No template found for language: {language}")
-                continue
-
+                # Try default language
+                if default_language in self.templates:
+                    language = default_language
+                    print(f"⚠️ Language '{contact_dict.get('language', 'None')}' not available for {contact_dict.get('name', 'Unknown')}, using {default_language}")
+                else:
+                    # Use first available template
+                    language = available_languages[0]
+                    print(f"⚠️ Neither specified nor default language available for {contact_dict.get('name', 'Unknown')}, using {language}")
+            
+            # Track language usage
+            if language not in language_stats:
+                language_stats[language] = {'attempted': 0, 'successful': 0, 'failed': 0}
+            language_stats[language]['attempted'] += 1
+            
             template = self.templates[language]
             
             # Personalize message
-            contact_dict = contact.to_dict()
             message = self.personalize_message(template, contact_dict, global_vars)
             
             # Generate subject
@@ -364,8 +385,10 @@ class EmailCampaignBot:
                 'name': contact_dict.get('name', 'Unknown'),
                 'email': contact_dict.get('email', 'Unknown'),
                 'language': language,
+                'original_language': contact_dict.get('language', 'Not specified'),
                 'subject': subject,
-                'attachments_count': len(attachments)
+                'attachments_count': len(attachments),
+                'template_used': language in self.templates
             }
 
             print(f"\n📤 Sending to {contact_dict.get('name', 'Unknown')} ({contact_dict.get('email', 'Unknown')}) - Language: {language.upper()}")
@@ -374,11 +397,14 @@ class EmailCampaignBot:
                 print(f"🧪 TEST MODE: Email would be sent")
                 print(f"   Subject: {subject}")
                 print(f"   Attachments: {len(attachments)}")
+                print(f"   Template language: {language}")
                 log_entry['status'] = 'test_success'
                 successful_sends += 1
+                language_stats[language]['successful'] += 1
             else:
                 if self.send_email(contact_dict['email'], subject, message, attachments):
                     successful_sends += 1
+                    language_stats[language]['successful'] += 1
                     log_entry['status'] = 'success'
                     
                     # Random delay between sends
@@ -388,6 +414,7 @@ class EmailCampaignBot:
                         time.sleep(delay)
                 else:
                     failed_sends += 1
+                    language_stats[language]['failed'] += 1
                     log_entry['status'] = 'failed'
             
             campaign_log.append(log_entry)
@@ -399,12 +426,18 @@ class EmailCampaignBot:
             'failed_sends': failed_sends,
             'completion_time': datetime.now().isoformat(),
             'test_mode': test_mode,
-            'campaign_log': campaign_log
+            'campaign_log': campaign_log,
+            'language_statistics': language_stats,
+            'available_templates': available_languages,
+            'default_language_used': default_language
         }
         
         print(f"\n📊 CAMPAIGN SUMMARY")
         print(f"✅ Successful sends: {successful_sends}")
         print(f"❌ Failed sends: {failed_sends}")
+        print(f"🌐 Languages used: {', '.join(language_stats.keys())}")
+        for lang, lang_stats in language_stats.items():
+            print(f"   {lang.upper()}: {lang_stats['successful']}/{lang_stats['attempted']} successful")
         print(f"📅 Completed at: {stats['completion_time']}")
         
         return stats
