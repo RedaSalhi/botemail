@@ -4,7 +4,13 @@ import json
 import os
 from datetime import datetime
 import io
-from email_campaign_bot import EmailCampaignBot
+
+# Import the EmailCampaignBot class
+try:
+    from email_campaign_bot import EmailCampaignBot
+except ImportError as e:
+    st.error(f"❌ Error importing EmailCampaignBot: {e}")
+    st.stop()
 
 
 # Page configuration
