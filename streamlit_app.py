@@ -377,13 +377,62 @@ def main():
             st.warning("⚠️ Please upload contacts file first")
             return
         
+        # Language and Campaign Configuration
+        st.subheader("🌐 Campaign Language Settings")
+        
+        # Get available languages from templates
+        available_languages = list(st.session_state.bot.templates.keys()) if st.session_state.bot.templates else ['en']
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            campaign_mode = st.radio(
+                "Campaign Mode",
+                ["Single Language", "Multi-Language", "Auto-Detect"],
+                help="Choose how to handle languages in your campaign"
+            )
+        
+        with col2:
+            if campaign_mode == "Single Language":
+                selected_language = st.selectbox(
+                    "Select Campaign Language",
+                    available_languages,
+                    help="All contacts will receive emails in this language"
+                )
+                st.info(f"All {len(st.session_state.contacts_df)} contacts will receive {selected_language.upper()} emails")
+            
+            elif campaign_mode == "Multi-Language":
+                selected_languages = st.multiselect(
+                    "Select Languages to Send",
+                    available_languages,
+                    default=available_languages,
+                    help="Create separate campaigns for each selected language"
+                )
+                if selected_languages:
+                    total_campaigns = len(selected_languages) * len(st.session_state.contacts_df)
+                    st.warning(f"⚠️ This will create {len(selected_languages)} campaigns × {len(st.session_state.contacts_df)} contacts = {total_campaigns} total emails")
+            
+            else:  # Auto-Detect
+                st.info("Will use 'language' column from contacts file, defaulting to English if not specified")
+                # Check if language column exists
+                if 'language' in st.session_state.contacts_df.columns:
+                    lang_distribution = st.session_state.contacts_df['language'].value_counts()
+                    st.write("**Language Distribution in Contacts:**")
+                    for lang, count in lang_distribution.items():
+                        if lang in available_languages:
+                            st.write(f"- {lang.upper()}: {count} contacts ✅")
+                        else:
+                            st.write(f"- {lang.upper()}: {count} contacts ❌ (no template)")
+                else:
+                    st.warning("⚠️ No 'language' column found in contacts. Will default to English.")
+        
         # Global variables configuration
         st.subheader("👤 Sender Information")
         col1, col2 = st.columns(2)
         
         with col1:
-            sender_name = st.text_input("Sender Name", value="Your Name")
-            sender_title = st.text_input("Sender Title", value="Your Title")
+            sender_name = st.text_input("Sender Name", value="Reda Salhi")
+            sender_title = st.text_input("Sender Title", value="Étudiant en Finance")
             sender_contact = st.text_area("Contact Information", value="Email: your@email.com\nPhone: +1234567890")
         
         with col2:
@@ -395,7 +444,7 @@ def main():
         st.subheader("🔧 Custom Variables")
         custom_vars_text = st.text_area(
             "Additional Variables (JSON format)",
-            value='{"company": "Your Company", "background": "your background"}',
+            value='{"company": "Your Company", "background": "financial engineering"}',
             help="Enter custom variables in JSON format"
         )
         
@@ -418,21 +467,35 @@ def main():
         # Campaign preview
         st.subheader("👀 Campaign Preview")
         
-        if st.button("🔍 Preview First Email"):
-            if len(st.session_state.contacts_df) > 0:
-                first_contact = st.session_state.contacts_df.iloc[0].to_dict()
-                language = first_contact.get('language', 'en')
-                
-                if language in st.session_state.bot.templates:
-                    template = st.session_state.bot.templates[language]
-                    preview_message = st.session_state.bot.personalize_message(template, first_contact, global_vars)
-                    preview_subject = st.session_state.bot.generate_subject(first_contact, language, global_vars)
-                    
-                    st.success(f"**Subject:** {preview_subject}")
-                    st.info("**Email Content:**")
-                    st.markdown(preview_message, unsafe_allow_html=True)
-                else:
-                    st.error(f"❌ No template available for language: {language}")
+        # Language selection for preview
+        if campaign_mode == "Single Language":
+            preview_languages = [selected_language]
+        elif campaign_mode == "Multi-Language":
+            preview_languages = selected_languages if selected_languages else available_languages[:1]
+        else:
+            preview_languages = available_languages[:2]  # Show first 2 languages for auto-detect
+        
+        preview_cols = st.columns(len(preview_languages))
+        
+        for idx, lang in enumerate(preview_languages):
+            with preview_cols[idx]:
+                if st.button(f"🔍 Preview {lang.upper()}", key=f"preview_{lang}"):
+                    if len(st.session_state.contacts_df) > 0:
+                        first_contact = st.session_state.contacts_df.iloc[0].to_dict()
+                        # Override language for preview
+                        first_contact['language'] = lang
+                        
+                        if lang in st.session_state.bot.templates:
+                            template = st.session_state.bot.templates[lang]
+                            preview_message = st.session_state.bot.personalize_message(template, first_contact, global_vars)
+                            preview_subject = st.session_state.bot.generate_subject(first_contact, lang, global_vars)
+                            
+                            st.success(f"**Subject ({lang.upper()}):** {preview_subject}")
+                            st.info(f"**Email Content ({lang.upper()}):**")
+                            with st.expander(f"View {lang.upper()} Email", expanded=True):
+                                st.markdown(preview_message, unsafe_allow_html=True)
+                        else:
+                            st.error(f"❌ No template available for language: {lang}")
         
         # Launch campaign
         st.subheader("🚀 Launch Campaign")
@@ -454,50 +517,146 @@ def main():
         
         if launch_button:
             if not st.session_state.contacts_df.empty:
-                # Save contacts to temporary file
-                temp_contacts_file = "temp_contacts.xlsx"
-                st.session_state.contacts_df.to_excel(temp_contacts_file, index=False)
+                # Prepare campaign data based on selected mode
+                campaign_results = []
                 
-                # Progress bar
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                status_text.text("🚀 Starting campaign...")
-                
-                try:
-                    # Run campaign
-                    campaign_stats = st.session_state.bot.run_campaign(
-                        contacts_file=temp_contacts_file,
-                        global_vars=global_vars,
-                        attachments_config=st.session_state.attachment_config,
-                        send_limit=send_limit,
-                        delay_min=delay_min,
-                        delay_max=delay_max,
-                        test_mode=test_mode
-                    )
+                if campaign_mode == "Single Language":
+                    # Single language campaign
+                    contacts_with_language = st.session_state.contacts_df.copy()
+                    contacts_with_language['language'] = selected_language
                     
+                    # Save contacts to temporary file
+                    temp_contacts_file = f"temp_contacts_{selected_language}.xlsx"
+                    contacts_with_language.to_excel(temp_contacts_file, index=False)
+                    
+                    # Progress tracking
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    status_text.text(f"🚀 Starting {selected_language.upper()} campaign...")
+                    
+                    try:
+                        campaign_stats = st.session_state.bot.run_campaign(
+                            contacts_file=temp_contacts_file,
+                            global_vars=global_vars,
+                            attachments_config=st.session_state.attachment_config,
+                            send_limit=send_limit,
+                            delay_min=delay_min,
+                            delay_max=delay_max,
+                            test_mode=test_mode
+                        )
+                        
+                        campaign_stats['language'] = selected_language
+                        campaign_results.append(campaign_stats)
+                        
+                    except Exception as e:
+                        st.error(f"❌ Campaign failed: {str(e)}")
+                    finally:
+                        if os.path.exists(temp_contacts_file):
+                            os.remove(temp_contacts_file)
+                
+                elif campaign_mode == "Multi-Language":
+                    # Multi-language campaigns
+                    if not selected_languages:
+                        st.error("❌ Please select at least one language")
+                        return
+                    
+                    total_languages = len(selected_languages)
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    for idx, lang in enumerate(selected_languages):
+                        if lang not in st.session_state.bot.templates:
+                            st.warning(f"⚠️ Skipping {lang.upper()} - no template available")
+                            continue
+                        
+                        status_text.text(f"🚀 Starting {lang.upper()} campaign ({idx+1}/{total_languages})...")
+                        progress_bar.progress((idx) / total_languages)
+                        
+                        # Prepare contacts for this language
+                        contacts_with_language = st.session_state.contacts_df.copy()
+                        contacts_with_language['language'] = lang
+                        
+                        # Save to temporary file
+                        temp_contacts_file = f"temp_contacts_{lang}.xlsx"
+                        contacts_with_language.to_excel(temp_contacts_file, index=False)
+                        
+                        try:
+                            campaign_stats = st.session_state.bot.run_campaign(
+                                contacts_file=temp_contacts_file,
+                                global_vars=global_vars,
+                                attachments_config=st.session_state.attachment_config,
+                                send_limit=send_limit,
+                                delay_min=delay_min,
+                                delay_max=delay_max,
+                                test_mode=test_mode
+                            )
+                            
+                            campaign_stats['language'] = lang
+                            campaign_results.append(campaign_stats)
+                            
+                        except Exception as e:
+                            st.error(f"❌ {lang.upper()} campaign failed: {str(e)}")
+                        finally:
+                            if os.path.exists(temp_contacts_file):
+                                os.remove(temp_contacts_file)
+                        
+                        # Update progress
+                        progress_bar.progress((idx + 1) / total_languages)
+                
+                else:  # Auto-Detect
+                    # Auto-detect language from contacts
+                    temp_contacts_file = "temp_contacts_auto.xlsx"
+                    st.session_state.contacts_df.to_excel(temp_contacts_file, index=False)
+                    
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    status_text.text("🚀 Starting auto-detect campaign...")
+                    
+                    try:
+                        campaign_stats = st.session_state.bot.run_campaign(
+                            contacts_file=temp_contacts_file,
+                            global_vars=global_vars,
+                            attachments_config=st.session_state.attachment_config,
+                            send_limit=send_limit,
+                            delay_min=delay_min,
+                            delay_max=delay_max,
+                            test_mode=test_mode
+                        )
+                        
+                        campaign_stats['language'] = 'auto-detect'
+                        campaign_results.append(campaign_stats)
+                        
+                    except Exception as e:
+                        st.error(f"❌ Campaign failed: {str(e)}")
+                    finally:
+                        if os.path.exists(temp_contacts_file):
+                            os.remove(temp_contacts_file)
+                
+                # Update progress and show results
+                if campaign_results:
                     progress_bar.progress(100)
-                    status_text.text("✅ Campaign completed!")
+                    status_text.text("✅ All campaigns completed!")
                     
                     # Store results
-                    st.session_state.campaign_stats = campaign_stats
+                    st.session_state.campaign_stats = campaign_results
                     
-                    # Clean up
-                    if os.path.exists(temp_contacts_file):
-                        os.remove(temp_contacts_file)
+                    # Show summary
+                    total_successful = sum(stats.get('successful_sends', 0) for stats in campaign_results if 'error' not in stats)
+                    total_failed = sum(stats.get('failed_sends', 0) for stats in campaign_results if 'error' not in stats)
                     
-                    # Show immediate results
-                    if "error" not in campaign_stats:
-                        st.success(f"✅ Campaign completed! {campaign_stats['successful_sends']} emails sent successfully.")
-                        if campaign_stats['failed_sends'] > 0:
-                            st.warning(f"⚠️ {campaign_stats['failed_sends']} emails failed to send.")
-                    else:
-                        st.error(f"❌ Campaign failed: {campaign_stats['error']}")
-                        
-                except Exception as e:
-                    st.error(f"❌ Campaign failed: {str(e)}")
+                    if total_successful > 0:
+                        st.success(f"✅ All campaigns completed! {total_successful} emails sent successfully across {len(campaign_results)} campaign(s).")
+                    if total_failed > 0:
+                        st.warning(f"⚠️ {total_failed} emails failed to send.")
+                    
+                    # Show per-language results
+                    for stats in campaign_results:
+                        if 'error' not in stats:
+                            lang_name = stats.get('language', 'Unknown').upper()
+                            st.info(f"**{lang_name}**: {stats['successful_sends']} sent, {stats['failed_sends']} failed")
+                else:
                     progress_bar.progress(0)
-                    status_text.text("❌ Campaign failed")
+                    status_text.text("❌ No campaigns completed")
             else:
                 st.error("❌ No contacts available")
     
@@ -505,83 +664,195 @@ def main():
         st.header("📊 Campaign Results")
         
         if st.session_state.campaign_stats:
-            stats = st.session_state.campaign_stats
-            
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Total Contacts", stats['total_contacts'])
-            
-            with col2:
-                st.metric("Successful Sends", stats['successful_sends'])
-            
-            with col3:
-                st.metric("Failed Sends", stats['failed_sends'])
-            
-            with col4:
-                success_rate = (stats['successful_sends'] / stats['total_contacts'] * 100) if stats['total_contacts'] > 0 else 0
-                st.metric("Success Rate", f"{success_rate:.1f}%")
-            
-            # Campaign log
-            if 'campaign_log' in stats and stats['campaign_log']:
-                st.subheader("📋 Detailed Log")
+            # Handle both single campaign and multi-campaign results
+            if isinstance(st.session_state.campaign_stats, list):
+                # Multi-campaign results
+                all_stats = st.session_state.campaign_stats
                 
-                log_df = pd.DataFrame(stats['campaign_log'])
+                # Overall summary
+                st.subheader("📈 Overall Campaign Summary")
                 
-                # Add filters
-                col1, col2 = st.columns(2)
+                total_contacts = sum(stats.get('total_contacts', 0) for stats in all_stats if 'error' not in stats)
+                total_successful = sum(stats.get('successful_sends', 0) for stats in all_stats if 'error' not in stats)
+                total_failed = sum(stats.get('failed_sends', 0) for stats in all_stats if 'error' not in stats)
+                
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    status_filter = st.multiselect(
-                        "Filter by Status",
-                        options=log_df['status'].unique(),
-                        default=log_df['status'].unique()
-                    )
+                    st.metric("Total Campaigns", len(all_stats))
                 
                 with col2:
-                    language_filter = st.multiselect(
-                        "Filter by Language",
-                        options=log_df['language'].unique(),
-                        default=log_df['language'].unique()
+                    st.metric("Total Emails Sent", total_successful)
+                
+                with col3:
+                    st.metric("Total Failed", total_failed)
+                
+                with col4:
+                    overall_success_rate = (total_successful / (total_successful + total_failed) * 100) if (total_successful + total_failed) > 0 else 0
+                    st.metric("Overall Success Rate", f"{overall_success_rate:.1f}%")
+                
+                # Per-language breakdown
+                st.subheader("🌐 Per-Language Results")
+                
+                language_data = []
+                for stats in all_stats:
+                    if 'error' not in stats:
+                        language_data.append({
+                            'Language': stats.get('language', 'Unknown').upper(),
+                            'Contacts': stats.get('total_contacts', 0),
+                            'Successful': stats.get('successful_sends', 0),
+                            'Failed': stats.get('failed_sends', 0),
+                            'Success Rate': f"{(stats.get('successful_sends', 0) / stats.get('total_contacts', 1) * 100):.1f}%",
+                            'Completion Time': stats.get('completion_time', 'Unknown')
+                        })
+                
+                if language_data:
+                    lang_df = pd.DataFrame(language_data)
+                    st.dataframe(lang_df, use_container_width=True)
+                
+                # Combined campaign log
+                st.subheader("📋 Combined Campaign Log")
+                
+                all_logs = []
+                for stats in all_stats:
+                    if 'campaign_log' in stats and stats['campaign_log']:
+                        # Add language info to each log entry
+                        for log_entry in stats['campaign_log']:
+                            log_entry['campaign_language'] = stats.get('language', 'Unknown')
+                            all_logs.append(log_entry)
+                
+                if all_logs:
+                    combined_log_df = pd.DataFrame(all_logs)
+                    
+                    # Add filters
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        status_filter = st.multiselect(
+                            "Filter by Status",
+                            options=combined_log_df['status'].unique(),
+                            default=combined_log_df['status'].unique(),
+                            key="multi_status_filter"
+                        )
+                    
+                    with col2:
+                        email_lang_filter = st.multiselect(
+                            "Filter by Email Language",
+                            options=combined_log_df['language'].unique(),
+                            default=combined_log_df['language'].unique(),
+                            key="multi_email_lang_filter"
+                        )
+                    
+                    with col3:
+                        campaign_lang_filter = st.multiselect(
+                            "Filter by Campaign",
+                            options=combined_log_df['campaign_language'].unique(),
+                            default=combined_log_df['campaign_language'].unique(),
+                            key="multi_campaign_filter"
+                        )
+                    
+                    # Apply filters
+                    filtered_df = combined_log_df[
+                        (combined_log_df['status'].isin(status_filter)) &
+                        (combined_log_df['language'].isin(email_lang_filter)) &
+                        (combined_log_df['campaign_language'].isin(campaign_lang_filter))
+                    ]
+                    
+                    # Display filtered results
+                    st.dataframe(filtered_df, use_container_width=True)
+                    
+                    # Download combined results
+                    csv_buffer = io.StringIO()
+                    combined_log_df.to_csv(csv_buffer, index=False)
+                    
+                    st.download_button(
+                        label="📥 Download Combined Campaign Log",
+                        data=csv_buffer.getvalue(),
+                        file_name=f"combined_campaign_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+            
+            else:
+                # Single campaign results (backward compatibility)
+                stats = st.session_state.campaign_stats
+                
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Contacts", stats['total_contacts'])
+                
+                with col2:
+                    st.metric("Successful Sends", stats['successful_sends'])
+                
+                with col3:
+                    st.metric("Failed Sends", stats['failed_sends'])
+                
+                with col4:
+                    success_rate = (stats['successful_sends'] / stats['total_contacts'] * 100) if stats['total_contacts'] > 0 else 0
+                    st.metric("Success Rate", f"{success_rate:.1f}%")
+                
+                # Campaign log
+                if 'campaign_log' in stats and stats['campaign_log']:
+                    st.subheader("📋 Detailed Log")
+                    
+                    log_df = pd.DataFrame(stats['campaign_log'])
+                    
+                    # Add filters
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        status_filter = st.multiselect(
+                            "Filter by Status",
+                            options=log_df['status'].unique(),
+                            default=log_df['status'].unique(),
+                            key="single_status_filter"
+                        )
+                    
+                    with col2:
+                        language_filter = st.multiselect(
+                            "Filter by Language",
+                            options=log_df['language'].unique(),
+                            default=log_df['language'].unique(),
+                            key="single_language_filter"
+                        )
+                    
+                    # Apply filters
+                    filtered_df = log_df[
+                        (log_df['status'].isin(status_filter)) &
+                        (log_df['language'].isin(language_filter))
+                    ]
+                    
+                    # Display filtered results
+                    st.dataframe(filtered_df, use_container_width=True)
+                    
+                    # Download results
+                    csv_buffer = io.StringIO()
+                    log_df.to_csv(csv_buffer, index=False)
+                    
+                    st.download_button(
+                        label="📥 Download Campaign Log",
+                        data=csv_buffer.getvalue(),
+                        file_name=f"campaign_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
                     )
                 
-                # Apply filters
-                filtered_df = log_df[
-                    (log_df['status'].isin(status_filter)) &
-                    (log_df['language'].isin(language_filter))
-                ]
+                # Campaign summary
+                st.subheader("📈 Campaign Summary")
                 
-                # Display filtered results
-                st.dataframe(filtered_df, use_container_width=True)
+                summary_data = {
+                    'Metric': ['Total Contacts', 'Successful Sends', 'Failed Sends', 'Success Rate', 'Completion Time'],
+                    'Value': [
+                        stats['total_contacts'],
+                        stats['successful_sends'],
+                        stats['failed_sends'],
+                        f"{success_rate:.1f}%",
+                        stats['completion_time']
+                    ]
+                }
                 
-                # Download results
-                csv_buffer = io.StringIO()
-                log_df.to_csv(csv_buffer, index=False)
-                
-                st.download_button(
-                    label="📥 Download Campaign Log",
-                    data=csv_buffer.getvalue(),
-                    file_name=f"campaign_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-            
-            # Campaign summary
-            st.subheader("📈 Campaign Summary")
-            
-            summary_data = {
-                'Metric': ['Total Contacts', 'Successful Sends', 'Failed Sends', 'Success Rate', 'Completion Time'],
-                'Value': [
-                    stats['total_contacts'],
-                    stats['successful_sends'],
-                    stats['failed_sends'],
-                    f"{success_rate:.1f}%",
-                    stats['completion_time']
-                ]
-            }
-            
-            summary_df = pd.DataFrame(summary_data)
-            st.table(summary_df)
+                summary_df = pd.DataFrame(summary_data)
+                st.table(summary_df)
             
         else:
             st.info("📊 No campaign results yet. Launch a campaign to see results here.")
@@ -589,14 +860,116 @@ def main():
             # Show sample results structure
             st.subheader("📋 Sample Results Structure")
             sample_results = pd.DataFrame({
-                'timestamp': ['2024-07-24T10:30:00', '2024-07-24T10:31:30'],
-                'name': ['John Doe', 'Marie Martin'],
-                'email': ['john@example.com', 'marie@example.fr'],
-                'language': ['en', 'fr'],
-                'status': ['success', 'success'],
-                'attachments_count': [2, 2]
+                'timestamp': ['2024-07-24T10:30:00', '2024-07-24T10:31:30', '2024-07-24T10:33:00'],
+                'name': ['John Doe', 'Marie Martin', 'Hans Mueller'],
+                'email': ['john@example.com', 'marie@example.fr', 'hans@example.de'],
+                'language': ['en', 'fr', 'de'],
+                'campaign_language': ['en', 'fr', 'de'],
+                'status': ['success', 'success', 'failed'],
+                'attachments_count': [2, 2, 2]
             })
             st.dataframe(sample_results, use_container_width=True)
+            
+        # Export all results
+        if st.session_state.campaign_stats:
+            st.subheader("📤 Export Results")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("📊 Export Summary Report"):
+                    # Create comprehensive summary
+                    if isinstance(st.session_state.campaign_stats, list):
+                        # Multi-campaign report
+                        report_data = []
+                        for stats in st.session_state.campaign_stats:
+                            if 'error' not in stats:
+                                report_data.append({
+                                    'Campaign Language': stats.get('language', 'Unknown').upper(),
+                                    'Total Contacts': stats.get('total_contacts', 0),
+                                    'Successful Sends': stats.get('successful_sends', 0),
+                                    'Failed Sends': stats.get('failed_sends', 0),
+                                    'Success Rate (%)': round((stats.get('successful_sends', 0) / max(stats.get('total_contacts', 1), 1) * 100), 2),
+                                    'Test Mode': stats.get('test_mode', False),
+                                    'Completion Time': stats.get('completion_time', 'Unknown')
+                                })
+                        
+                        summary_df = pd.DataFrame(report_data)
+                        
+                        # Add totals row
+                        totals = {
+                            'Campaign Language': 'TOTAL',
+                            'Total Contacts': summary_df['Total Contacts'].sum(),
+                            'Successful Sends': summary_df['Successful Sends'].sum(),
+                            'Failed Sends': summary_df['Failed Sends'].sum(),
+                            'Success Rate (%)': round((summary_df['Successful Sends'].sum() / max(summary_df['Total Contacts'].sum(), 1) * 100), 2),
+                            'Test Mode': 'Mixed' if len(set(stats.get('test_mode', False) for stats in st.session_state.campaign_stats)) > 1 else str(st.session_state.campaign_stats[0].get('test_mode', False)),
+                            'Completion Time': f"{len(st.session_state.campaign_stats)} campaigns"
+                        }
+                        summary_df = pd.concat([summary_df, pd.DataFrame([totals])], ignore_index=True)
+                        
+                    else:
+                        # Single campaign report
+                        stats = st.session_state.campaign_stats
+                        summary_df = pd.DataFrame([{
+                            'Campaign Language': stats.get('language', 'auto-detect').upper(),
+                            'Total Contacts': stats.get('total_contacts', 0),
+                            'Successful Sends': stats.get('successful_sends', 0),
+                            'Failed Sends': stats.get('failed_sends', 0),
+                            'Success Rate (%)': round((stats.get('successful_sends', 0) / max(stats.get('total_contacts', 1), 1) * 100), 2),
+                            'Test Mode': stats.get('test_mode', False),
+                            'Completion Time': stats.get('completion_time', 'Unknown')
+                        }])
+                    
+                    # Create downloadable CSV
+                    csv_buffer = io.StringIO()
+                    summary_df.to_csv(csv_buffer, index=False)
+                    
+                    st.download_button(
+                        label="📥 Download Summary Report",
+                        data=csv_buffer.getvalue(),
+                        file_name=f"campaign_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+            
+            with col2:
+                if st.button("📋 Export Detailed Logs"):
+                    # Create detailed log export
+                    if isinstance(st.session_state.campaign_stats, list):
+                        # Combine all logs
+                        all_logs = []
+                        for stats in st.session_state.campaign_stats:
+                            if 'campaign_log' in stats and stats['campaign_log']:
+                                for log_entry in stats['campaign_log']:
+                                    log_entry_copy = log_entry.copy()
+                                    log_entry_copy['campaign_language'] = stats.get('language', 'Unknown')
+                                    all_logs.append(log_entry_copy)
+                        
+                        if all_logs:
+                            detailed_df = pd.DataFrame(all_logs)
+                        else:
+                            detailed_df = pd.DataFrame()
+                    else:
+                        # Single campaign log
+                        stats = st.session_state.campaign_stats
+                        if 'campaign_log' in stats and stats['campaign_log']:
+                            detailed_df = pd.DataFrame(stats['campaign_log'])
+                            detailed_df['campaign_language'] = stats.get('language', 'auto-detect')
+                        else:
+                            detailed_df = pd.DataFrame()
+                    
+                    if not detailed_df.empty:
+                        csv_buffer = io.StringIO()
+                        detailed_df.to_csv(csv_buffer, index=False)
+                        
+                        st.download_button(
+                            label="📥 Download Detailed Logs",
+                            data=csv_buffer.getvalue(),
+                            file_name=f"campaign_detailed_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.warning("⚠️ No detailed logs available")
 
 if __name__ == "__main__":
     main()
